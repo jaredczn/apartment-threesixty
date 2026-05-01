@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>360° Photo Viewer</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0f;
+      --border: rgba(255,255,255,0.07);
+      --accent: #e8ff57;
+      --text: #e8e8f0;
+      --muted: #6b6b80;
+    }
+
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; overflow: hidden; }
+
+    #app { display: grid; grid-template-rows: auto 1fr auto; height: 100vh; }
+
+    /* Header */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 28px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(90deg, rgba(232,255,87,0.04) 0%, transparent 60%);
+      flex-shrink: 0;
+    }
+
+    .logo {
+      font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem;
+      letter-spacing: 0.12em; color: var(--accent);
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    .hint { font-size: 0.78rem; color: var(--muted); display: flex; gap: 18px; }
+
+    /* Viewer */
+    #viewer-wrap { position: relative; overflow: hidden; }
+    #viewer { width: 100%; height: 100%; display: block; cursor: grab; }
+    #viewer:active { cursor: grabbing; }
+
+    /* Loading */
+    #loading {
+      position: absolute; inset: 0; background: var(--bg);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      transition: opacity 0.5s; z-index: 10;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+    .spinner { width: 44px; height: 44px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading p { font-size: 0.82rem; color: var(--muted); }
+
+    /* Nav arrows */
+    .nav-btn {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      background: rgba(10,10,15,0.7); border: 1px solid var(--border);
+      color: var(--text); width: 44px; height: 44px; border-radius: 50%;
+      font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      z-index: 4; transition: background 0.2s, border-color 0.2s; backdrop-filter: blur(6px);
+    }
+    .nav-btn:hover { background: rgba(232,255,87,0.15); border-color: rgba(232,255,87,0.4); }
+    .nav-btn:disabled { opacity: 0.2; pointer-events: none; }
+    #prev { left: 20px; }
+    #next { right: 20px; }
+
+    /* Counter */
+    #counter {
+      position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+      background: rgba(10,10,15,0.75); border: 1px solid var(--border);
+      border-radius: 20px; padding: 4px 14px; font-size: 0.75rem; color: var(--muted);
+      backdrop-filter: blur(6px); z-index: 4;
+    }
+    #counter span { color: var(--accent); font-weight: 500; }
+
+    /* Fullscreen */
+    #fs-btn {
+      position: absolute; bottom: 14px; right: 14px;
+      background: rgba(10,10,15,0.7); border: 1px solid var(--border);
+      color: var(--text); width: 36px; height: 36px; border-radius: 6px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      z-index: 4; backdrop-filter: blur(6px); transition: background 0.2s; font-size: 1rem;
+    }
+    #fs-btn:hover { background: rgba(232,255,87,0.15); }
+
+    /* Thumbnail strip */
+    #strip {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 28px; border-top: 1px solid var(--border);
+      overflow-x: auto; flex-shrink: 0;
+      scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+    }
+
+    .thumb {
+      position: relative; width: 90px; height: 52px; border-radius: 5px;
+      overflow: hidden; cursor: pointer; flex-shrink: 0;
+      border: 2px solid transparent; transition: border-color 0.2s, transform 0.15s;
+    }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .thumb:hover { transform: translateY(-2px); border-color: rgba(232,255,87,0.4); }
+    .thumb.active { border-color: var(--accent); }
+
+    .thumb .label {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      text-align: center; font-size: 0.6rem; color: rgba(255,255,255,0.75);
+      background: rgba(0,0,0,0.55); padding: 2px 0;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="logo">
+      <svg width="26" height="26" viewBox="0 0 28 28" fill="none">
+        <circle cx="14" cy="14" r="12" stroke="#e8ff57" stroke-width="1.5"/>
+        <ellipse cx="14" cy="14" rx="5" ry="12" stroke="#e8ff57" stroke-width="1.5"/>
+        <line x1="2" y1="14" x2="26" y2="14" stroke="#e8ff57" stroke-width="1.5"/>
+      </svg>
+      360° Viewer
+    </div>
+    <div class="hint">
+      <span>🖱 Drag to look around</span>
+      <span>⚲ Scroll to zoom</span>
+      <span>← → to browse</span>
+    </div>
+  </header>
+
+  <div id="viewer-wrap">
+    <canvas id="viewer"></canvas>
+    <div id="loading">
+      <div class="spinner"></div>
+      <p id="load-label">Loading…</p>
+    </div>
+    <button class="nav-btn" id="prev">&#8592;</button>
+    <button class="nav-btn" id="next">&#8594;</button>
+    <div id="counter"><span id="cur">1</span> / <span id="tot"></span></div>
+    <button id="fs-btn" title="Fullscreen">⛶</button>
+  </div>
+
+  <div id="strip"></div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // EDIT THIS ARRAY — filenames must be in the same folder as this HTML file.
+  // Change 'label' to whatever caption you want shown on each thumbnail.
+  // ─────────────────────────────────────────────────────────────────────────
+  const photos = [
+    { file: 'kitchen.jpg', label: 'Kitchen' },
+    { file: 'laundry.jpg', label: 'Laundry' },
+  ];
+  // ─────────────────────────────────────────────────────────────────────────
+
+  let current = 0;
+
+  // ── Three.js setup ────────────────────────────────────────────────────────
+  const canvas   = document.getElementById('viewer');
+  const wrap     = document.getElementById('viewer-wrap');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+
+  const scene  = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+  camera.position.set(0, 0, 0.01);
+
+  const geo = new THREE.SphereGeometry(500, 60, 40);
+  geo.scale(-1, 1, 1);                        // flip so texture faces inward
+  const mat    = new THREE.MeshBasicMaterial();
+  const sphere = new THREE.Mesh(geo, mat);
+  scene.add(sphere);
+
+  const loader = new THREE.TextureLoader();
+
+  // ── Resize handler ────────────────────────────────────────────────────────
+  function resize() {
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  new ResizeObserver(resize).observe(wrap);
+  resize();
+
+  // ── Mouse drag ────────────────────────────────────────────────────────────
+  let isDown = false, lastX = 0, lastY = 0;
+  let lon = 0, lat = 0, targetLon = 0, targetLat = 0;
+
+  canvas.addEventListener('mousedown', e => { isDown = true; lastX = e.clientX; lastY = e.clientY; });
+  window.addEventListener('mouseup',   () => { isDown = false; });
+  window.addEventListener('mousemove', e => {
+    if (!isDown) return;
+    targetLon -= (e.clientX - lastX) * 0.25;
+    targetLat += (e.clientY - lastY) * 0.25;
+    targetLat  = Math.max(-85, Math.min(85, targetLat));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+
+  // ── Touch drag & pinch-zoom ───────────────────────────────────────────────
+  let lastTX = 0, lastTY = 0, lastPinch = 0;
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (e.touches.length === 1) { lastTX = e.touches[0].clientX; lastTY = e.touches[0].clientY; }
+    if (e.touches.length === 2) lastPinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  }, { passive: false });
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      targetLon -= (e.touches[0].clientX - lastTX) * 0.3;
+      targetLat += (e.touches[0].clientY - lastTY) * 0.3;
+      targetLat  = Math.max(-85, Math.min(85, targetLat));
+      lastTX = e.touches[0].clientX; lastTY = e.touches[0].clientY;
+    }
+    if (e.touches.length === 2) {
+      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      camera.fov = Math.max(30, Math.min(100, camera.fov * (lastPinch / d)));
+      camera.updateProjectionMatrix();
+      lastPinch = d;
+    }
+  }, { passive: false });
+
+  // ── Scroll to zoom ────────────────────────────────────────────────────────
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    camera.fov = Math.max(30, Math.min(100, camera.fov + e.deltaY * 0.04));
+    camera.updateProjectionMatrix();
+  }, { passive: false });
+
+  // ── Render loop ───────────────────────────────────────────────────────────
+  (function animate() {
+    requestAnimationFrame(animate);
+    lon += (targetLon - lon) * 0.08;
+    lat += (targetLat - lat) * 0.08;
+    const phi   = THREE.MathUtils.degToRad(90 - lat);
+    const theta = THREE.MathUtils.degToRad(lon);
+    camera.lookAt(
+      500 * Math.sin(phi) * Math.cos(theta),
+      500 * Math.cos(phi),
+      500 * Math.sin(phi) * Math.sin(theta)
+    );
+    renderer.render(scene, camera);
+  })();
+
+  // ── Load photo by index ───────────────────────────────────────────────────
+  function loadPhoto(index) {
+    document.getElementById('load-label').textContent = `Loading ${photos[index].label}…`;
+    document.getElementById('loading').classList.remove('hidden');
+    targetLon = 0; targetLat = 0;
+
+    loader.load(photos[index].file, tex => {
+      if (mat.map) mat.map.dispose();  // free previous texture from GPU
+      mat.map = tex;
+      mat.needsUpdate = true;
+      document.getElementById('loading').classList.add('hidden');
+    });
+
+    document.querySelectorAll('.thumb').forEach((t, i) => t.classList.toggle('active', i === index));
+    document.getElementById('cur').textContent  = index + 1;
+    document.getElementById('prev').disabled    = index === 0;
+    document.getElementById('next').disabled    = index === photos.length - 1;
+    current = index;
+  }
+
+  // ── Build thumbnail strip ─────────────────────────────────────────────────
+  document.getElementById('tot').textContent = photos.length;
+  const strip = document.getElementById('strip');
+
+  photos.forEach((p, i) => {
+    const thumb = document.createElement('div');
+    thumb.className = 'thumb';
+
+    const img = document.createElement('img');
+    img.src = p.file; img.alt = p.label;
+
+    const lbl = document.createElement('div');
+    lbl.className = 'label';
+    lbl.textContent = p.label;
+
+    thumb.appendChild(img);
+    thumb.appendChild(lbl);
+    thumb.addEventListener('click', () => loadPhoto(i));
+    strip.appendChild(thumb);
+  });
+
+  // ── Keyboard navigation ───────────────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft'  && current > 0)                 loadPhoto(current - 1);
+    if (e.key === 'ArrowRight' && current < photos.length - 1) loadPhoto(current + 1);
+  });
+
+  document.getElementById('prev').addEventListener('click', () => loadPhoto(current - 1));
+  document.getElementById('next').addEventListener('click', () => loadPhoto(current + 1));
+
+  // ── Fullscreen ────────────────────────────────────────────────────────────
+  document.getElementById('fs-btn').addEventListener('click', () => {
+    if (!document.fullscreenElement) wrap.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  });
+
+  // ── Go! ───────────────────────────────────────────────────────────────────
+  loadPhoto(0);
+
+</script>
+</body>
+</html>
